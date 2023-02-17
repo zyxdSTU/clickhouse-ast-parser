@@ -24,7 +24,8 @@ public class TestAstParser {
 
     @Test
     public void testReferredTablesDetector() {
-        String sql = "SELECT t1.a FROM t1 RIGHT JOIN t2 ON t1.id = t2.id LIMIT 1000";
+//        String sql = "SELECT t1.a FROM t1 RIGHT JOIN t2 ON t1.id = t2.id LIMIT 1000";
+        String sql = "INSERT INTO insert_select_testtable (a, b, c) select d ,e, f from others;";
         AstParser astParser = new AstParser();
         Object ast = astParser.parse(sql);
         ReferredTablesDetector referredTablesDetector = new ReferredTablesDetector();
