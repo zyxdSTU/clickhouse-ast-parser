@@ -25,12 +25,42 @@ public class TestAstParser {
     @Test
     public void testReferredTablesDetector() {
 //        String sql = "SELECT t1.a FROM t1 RIGHT JOIN t2 ON t1.id = t2.id LIMIT 1000";
-        String sql = "INSERT INTO insert_select_testtable (a, b, c) select d ,e, f from others;";
+//        String sql = "INSERT INTO insert_select_testtable (a, b, c) select d ,e, f from others;";
+
+        String sql = "INSERT INTO TABLE db_test.table_result (id, name)\n"
+                + "SELECT\n"
+                + "    t1.id,\n"
+                + "    t2.name\n"
+                + "FROM\n"
+                + "(\n"
+                + "    SELECT\n"
+                + "        id1 + id2 AS id\n"
+                + "    FROM\n"
+                + "        db_test.table1\n"
+                + ") t1\n"
+                + "LEFT JOIN\n"
+                + "(\n"
+                + "    SELECT\n"
+                + "        id,\n"
+                + "        name\n"
+                + "    FROM\n"
+                + "    (\n"
+                + "        SELECT\n"
+                + "            id,\n"
+                + "            sourcename AS name\n"
+                + "        FROM\n"
+                + "            db_test.table2\n"
+                + "    )\n"
+                + ") t2\n"
+                + "ON t1.id=t2.id";
+
         AstParser astParser = new AstParser();
         Object ast = astParser.parse(sql);
-        ReferredTablesDetector referredTablesDetector = new ReferredTablesDetector();
-        List<String> tables = referredTablesDetector.searchTables((INode) ast);
-        tables.parallelStream().forEach(table -> System.out.println(table));
+        DataLineageDetector dataLineageDetector = new DataLineageDetector();
+//        ReferredTablesDetector referredTablesDetector = new ReferredTablesDetector();
+//        List<String> tables = referredTablesDetector.searchTables((INode) ast);
+        dataLineageDetector.visit((INode)ast);
+//        tables.parallelStream().forEach(table -> System.out.println(table));
     }
 
     @Test
