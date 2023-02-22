@@ -2,30 +2,25 @@ package com.clickhouse.parser;
 
 import com.clickhouse.data.FieldInfo;
 import com.clickhouse.data.FieldLineageInfo;
+import com.clickhouse.data.SelectFieldsInfo;
 import com.clickhouse.data.TableInfo;
 import com.clickhouse.parser.ast.FromClause;
 import com.clickhouse.parser.ast.Identifier;
 import com.clickhouse.parser.ast.InsertQuery;
 import com.clickhouse.parser.ast.SelectStatement;
-import com.clickhouse.parser.ast.SelectUnionQuery;
 import com.clickhouse.parser.ast.TableIdentifier;
 import com.clickhouse.parser.ast.expr.AliasColumnExpr;
-import com.clickhouse.parser.ast.expr.AsteriskColumnExpr;
 import com.clickhouse.parser.ast.expr.ColumnExpr;
-import com.clickhouse.parser.ast.expr.FunctionColumnExpr;
 import com.clickhouse.parser.ast.expr.IdentifierColumnExpr;
-import com.clickhouse.parser.ast.expr.LiteralColumnExpr;
-import com.clickhouse.parser.ast.expr.SubqueryColumnExpr;
+import com.clickhouse.parser.ast.expr.TableExpr;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Stack;
 import java.util.stream.Collectors;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 
@@ -44,17 +39,12 @@ public class DataLineageDetector extends AstVisitor<Object> {
     /**
      * 插入的字段
      */
-    private List<String> toColumnList = Lists.newArrayList();
+    private List<FieldInfo> toColumnList = Lists.newArrayList();
 
     /**
      * 来源表
      */
     private List<TableInfo> fromTableInfoList = Lists.newArrayList();
-
-    /**
-     * 来源字段
-     */
-    private List<String> fromColumnList = Lists.newArrayList();
 
 
     /**
@@ -70,7 +60,7 @@ public class DataLineageDetector extends AstVisitor<Object> {
     /**
      * 单个字段信息
      */
-    private FieldInfo fieldInfo = null;
+    private FieldInfo selectFieldInfo = null;
 
     /**
      * 字段信息临时List
@@ -85,7 +75,7 @@ public class DataLineageDetector extends AstVisitor<Object> {
     /**
      * 字段血缘的层次对应关系
      */
-    private Map<String, FieldLineageInfo> fieldLineageInfoMap = Maps.newHashMap();
+    private Map<String, SelectFieldsInfo> selectFieldsInfoMap = Maps.newHashMap();
 
     /**
      * 是否是别名列
@@ -96,6 +86,10 @@ public class DataLineageDetector extends AstVisitor<Object> {
      * 是否是函数列
      */
     boolean isFunctionColumn = false;
+
+    Stack<String> fromTableAliasStack = new Stack<>();
+
+    Stack<TableInfo> fromTableNameStack = new Stack<>();
 
     @Override
     public TableInfo visitTableIdentifier(TableIdentifier tableIdentifier) {
@@ -115,7 +109,11 @@ public class DataLineageDetector extends AstVisitor<Object> {
             toColumnList.addAll(
                     insertQuery.getColumns().stream()
                             .map(this::visitIdentifier)
-                            .collect(Collectors.toList())
+                            .map(fieldName -> FieldInfo.builder()
+                                        .fieldName(fieldName)
+                                        .tableInfo(toTableInfo)
+                                        .build()
+                            ).collect(Collectors.toList())
             );
         }
 
@@ -139,11 +137,11 @@ public class DataLineageDetector extends AstVisitor<Object> {
             selectParentMap.put(selectId, selectParentId);
         }
 
-        FieldLineageInfo fieldLineageInfo = FieldLineageInfo.builder()
+        SelectFieldsInfo selectFieldsInfo = SelectFieldsInfo.builder()
                 .id(selectId)
                 .parentId(selectParentId)
                 .build();
-        fieldLineageInfoMap.put(selectId, fieldLineageInfo);
+        selectFieldsInfoMap.put(selectId, selectFieldsInfo);
 
         Object result = super.visitSelectStatement(selectStatement);
 
@@ -158,8 +156,16 @@ public class DataLineageDetector extends AstVisitor<Object> {
 
 
     public Object visitFromClause(FromClause fromClause) {
-        fieldLineageInfoMap.get(selectId).setSelectFieldInfoList(fieldInfoTempList);
-        return super.visitFromClause(fromClause);
+        Object result = super.visitFromClause(fromClause);
+        SelectFieldsInfo selectFieldsInfo = selectFieldsInfoMap.get(selectId);
+        selectFieldsInfo.setSelectFieldsInfo(fieldInfoTempList);
+        if(!fromTableNameStack.isEmpty()) {
+            selectFieldsInfo.setFromTable(fromTableNameStack.pop());
+        }
+        if(!fromTableAliasStack.isEmpty()) {
+            selectFieldsInfo.setTableAlias(fromTableAliasStack.pop());
+        }
+        return result;
     }
 
     @Override
@@ -174,11 +180,11 @@ public class DataLineageDetector extends AstVisitor<Object> {
     @Override
     public Object visitColumnExpr(ColumnExpr expr) {
         if(!(isAliasColumn || isFunctionColumn)) {
-            fieldInfo = FieldInfo.builder()
-                    .relatedFieldName(Lists.newArrayList())
+            selectFieldInfo = FieldInfo.builder()
+                    .relatedFieldInfoList(Lists.newArrayList())
                     .build();
             Object result = super.visitColumnExpr(expr);
-            fieldInfoTempList.add(fieldInfo);
+            fieldInfoTempList.add(selectFieldInfo);
             return result;
         }
         return super.visitColumnExpr(expr);
@@ -188,11 +194,29 @@ public class DataLineageDetector extends AstVisitor<Object> {
     public Object visitAliasColumnExpr(AliasColumnExpr expr) {
         isAliasColumn = true;
         if(Objects.nonNull(expr.getAlias())) {
-            fieldInfo.setFieldName(expr.getAlias().getName());
+            selectFieldInfo.setFieldName(expr.getAlias().getName());
         }
         Object result = super.visitAliasColumnExpr(expr);
         isAliasColumn = false;
         return result;
+    }
+
+    @Override
+    public Object visitTableExpr(TableExpr tableExpr) {
+        //别名
+        if (Objects.nonNull(tableExpr.getAlias())) {
+            fromTableAliasStack.push(tableExpr.getAlias().getName());
+        }
+        //表名
+        if(Objects.nonNull(tableExpr.getIdentifier())) {
+            TableIdentifier tableIdentifier = tableExpr.getIdentifier();
+            fromTableNameStack.push(TableInfo.builder()
+                    .databaseName(tableIdentifier.getDatabase().getName())
+                    .tableName(tableIdentifier.getName())
+                    .build());
+        }
+
+        return super.visitTableExpr(tableExpr);
     }
 
 
@@ -201,9 +225,24 @@ public class DataLineageDetector extends AstVisitor<Object> {
         if (Objects.nonNull(expr) && expr instanceof IdentifierColumnExpr) {
             IdentifierColumnExpr identifierColumnExpr = (IdentifierColumnExpr) expr;
             if(isAliasColumn || isFunctionColumn) {
-                fieldInfo.getRelatedFieldName().add((identifierColumnExpr.getIdentifier().getName()));
+                selectFieldInfo.getRelatedFieldInfoList().add(
+                        FieldInfo.builder()
+                                .fieldName(identifierColumnExpr.getIdentifier().getName())
+                                .tableInfo(
+                                    TableInfo.builder()
+                                        .tableName(identifierColumnExpr.getIdentifier().getTable().getName())
+                                        .databaseName(identifierColumnExpr.getIdentifier().getTable().getDatabase().getName())
+                                        .build())
+                                .build()
+                );
             } else {
-                fieldInfo.setFieldName(identifierColumnExpr.getIdentifier().getName());
+                selectFieldInfo.setTableInfo(
+                        TableInfo.builder()
+                                .tableName(identifierColumnExpr.getIdentifier().getTable().getName())
+                                .databaseName(identifierColumnExpr.getIdentifier().getTable().getDatabase().getName())
+                                .build()
+                );
+                selectFieldInfo.setFieldName(identifierColumnExpr.getIdentifier().getName());
             }
         }
         return super.visitIdentifierColumnExpr(expr);
@@ -230,4 +269,61 @@ public class DataLineageDetector extends AstVisitor<Object> {
     public String visitIdentifier(Identifier identifier) {
         return identifier.getName();
     }
+
+    private List<FieldInfo> sourceFieldInfoList;
+
+    public List<FieldLineageInfo> getFieldLineage() {
+        List<FieldInfo> targetFieldInfoList = getTargetFields();
+        return targetFieldInfoList.stream()
+                .map(fieldInfo -> {
+                    sourceFieldInfoList = Lists.newArrayList();
+                    return FieldLineageInfo.builder()
+                            .targetField(fieldInfo)
+                            .sourceFields(sourceFieldInfoList)
+                            .build();
+                }).collect(Collectors.toList());
+
+    }
+
+
+    public void getSourceFieldInfo(String targetField, String parentId) {
+        for(SelectFieldsInfo selectFieldsInfo : selectFieldsInfoMap.values()) {
+            if(StringUtils.isNotEmpty(selectFieldsInfo.getParentId()) && StringUtils.equals(selectFieldsInfo.getParentId(), parentId)) {
+                continue;
+            }
+
+            if(StringUtils.isEmpty(selectFieldsInfo.getParentId()) && StringUtils.isNotEmpty(selectFieldsInfo.getParentId())) {
+                continue;
+            }
+
+            if(CollectionUtils.isEmpty(selectFieldsInfo.getSelectFieldsInfo())) {
+                continue;
+            }
+
+            if(Objects.isNull(selectFieldsInfo.getFromTable())) {
+                selectFieldsInfo.getSelectFieldsInfo().stream()
+                        .forEach(fieldInfo -> {
+
+                        });
+            }
+
+        }
+    }
+
+
+
+    /**
+     * 获取目标字段，即insert列或者最外层select
+     * @return
+     */
+    public List<FieldInfo> getTargetFields() {
+        return selectFieldsInfoMap.values().stream()
+                .filter(selectFieldsInfo -> StringUtils.isEmpty(selectFieldsInfo.getParentId()))
+                .map(SelectFieldsInfo::getSelectFieldsInfo)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+    }
+
+
+
 }

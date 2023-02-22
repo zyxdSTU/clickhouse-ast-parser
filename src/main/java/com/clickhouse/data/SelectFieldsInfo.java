@@ -8,33 +8,38 @@ import lombok.NoArgsConstructor;
 
 /**
  * @author zhouyu
- * @create 2023-02-21 11:01
+ * @create 2023-02-21 11:08
  */
-
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class FieldInfo {
+public class SelectFieldsInfo {
 
     /**
-     * 与其关联的字段名
+     * id
      */
-    List<FieldInfo> relatedFieldInfoList;
+    String id;
 
     /**
-     * 字段名称
+     * 父id
      */
-    String fieldName;
+    String parentId;
+
+    /**
+     * 来源表，来源为子查询，则为空
+     */
+    TableInfo fromTable;
 
 
     /**
-     * 表信息
+     * 表别名
      */
-    TableInfo tableInfo;
+    String tableAlias;
 
     /**
-     * 函数
+     * select字段
      */
-    String process;
+    List<FieldInfo> selectFieldsInfo;
+
 }

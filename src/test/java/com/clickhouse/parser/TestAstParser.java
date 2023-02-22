@@ -54,6 +54,20 @@ public class TestAstParser {
                 + ") t2\n"
                 + "ON t1.id=t2.id";
 
+//        String sql = "INSERT INTO TABLE db_test.table_result (id, name)\n"
+//                + "SELECT\n"
+//                + "    t1.id,\n"
+//                + "    t2.name\n"
+//                + "FROM\n"
+//                + "(\n"
+//                + "    SELECT\n"
+//                + "        id1 + id2 AS id\n"
+//                + "    FROM\n"
+//                + "        db_test.table1\n"
+//                + ") t1\n"
+//                + "LEFT JOIN db_test.table2 as t2\n"
+//                + "ON t1.id=t2.id;";
+
         AstParser astParser = new AstParser();
         Object ast = astParser.parse(sql);
         DataLineageDetector dataLineageDetector = new DataLineageDetector();
