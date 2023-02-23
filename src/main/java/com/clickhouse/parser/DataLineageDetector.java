@@ -156,9 +156,9 @@ public class DataLineageDetector extends AstVisitor<Object> {
 
 
     public Object visitFromClause(FromClause fromClause) {
-        Object result = super.visitFromClause(fromClause);
         SelectFieldsInfo selectFieldsInfo = selectFieldsInfoMap.get(selectId);
         selectFieldsInfo.setSelectFieldsInfo(fieldInfoTempList);
+        Object result = super.visitFromClause(fromClause);
         if(!fromTableNameStack.isEmpty()) {
             selectFieldsInfo.setFromTable(fromTableNameStack.pop());
         }
@@ -222,29 +222,32 @@ public class DataLineageDetector extends AstVisitor<Object> {
 
     @Override
     public Object visitIdentifierColumnExpr(ColumnExpr expr) {
-        if (Objects.nonNull(expr) && expr instanceof IdentifierColumnExpr) {
-            IdentifierColumnExpr identifierColumnExpr = (IdentifierColumnExpr) expr;
-            if(isAliasColumn || isFunctionColumn) {
-                selectFieldInfo.getRelatedFieldInfoList().add(
-                        FieldInfo.builder()
-                                .fieldName(identifierColumnExpr.getIdentifier().getName())
-                                .tableInfo(
-                                    TableInfo.builder()
-                                        .tableName(identifierColumnExpr.getIdentifier().getTable().getName())
-                                        .databaseName(identifierColumnExpr.getIdentifier().getTable().getDatabase().getName())
-                                        .build())
-                                .build()
-                );
-            } else {
-                selectFieldInfo.setTableInfo(
-                        TableInfo.builder()
-                                .tableName(identifierColumnExpr.getIdentifier().getTable().getName())
-                                .databaseName(identifierColumnExpr.getIdentifier().getTable().getDatabase().getName())
-                                .build()
-                );
-                selectFieldInfo.setFieldName(identifierColumnExpr.getIdentifier().getName());
+        if(Objects.isNull(expr) || !(expr instanceof  IdentifierColumnExpr)) {
+            return super.visitIdentifierColumnExpr(expr);
+        }
+
+        IdentifierColumnExpr identifierColumnExpr = (IdentifierColumnExpr) expr;
+        TableIdentifier tableIdentifier = identifierColumnExpr.getIdentifier().getTable();
+
+        TableInfo tableInfo = null;
+        if(Objects.nonNull(tableIdentifier)) {
+            tableInfo = TableInfo.builder().build();
+            tableInfo.setTableName(tableIdentifier.getName());
+            if(Objects.nonNull(tableIdentifier.getDatabase())) {
+                tableInfo.setDatabaseName(tableIdentifier.getDatabase().getName());
             }
         }
+
+        if(isAliasColumn || isFunctionColumn) {
+            selectFieldInfo.getRelatedFieldInfoList().add(FieldInfo.builder()
+                            .tableInfo(tableInfo)
+                            .fieldName(identifierColumnExpr.getIdentifier().getName())
+                    .build());
+        } else {
+            selectFieldInfo.setTableInfo(tableInfo);
+            selectFieldInfo.setFieldName(identifierColumnExpr.getIdentifier().getName());
+        }
+
         return super.visitIdentifierColumnExpr(expr);
     }
 
