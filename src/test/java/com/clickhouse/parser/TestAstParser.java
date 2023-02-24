@@ -1,5 +1,6 @@
 package com.clickhouse.parser;
 
+import com.clickhouse.data.FieldLineageInfo;
 import com.clickhouse.parser.ast.DistributedTableInfoDetector;
 import com.clickhouse.parser.ast.INode;
 import lombok.extern.slf4j.Slf4j;
@@ -68,12 +69,21 @@ public class TestAstParser {
 //                + "LEFT JOIN db_test.table2 as t2\n"
 //                + "ON t1.id=t2.id;";
 
+//        String sql = "INSERT INTO TABLE db_test.table_result\n"
+//                + "SELECT\n"
+//                + "    t1.id,\n"
+//                + "    t1.name\n"
+//                + "FROM\n"
+//                + " task as t1;";
+
         AstParser astParser = new AstParser();
         Object ast = astParser.parse(sql);
         DataLineageDetector dataLineageDetector = new DataLineageDetector();
 //        ReferredTablesDetector referredTablesDetector = new ReferredTablesDetector();
 //        List<String> tables = referredTablesDetector.searchTables((INode) ast);
         dataLineageDetector.visit((INode)ast);
+        List<FieldLineageInfo> fieldLineageInfoList = dataLineageDetector.getFieldLineage();
+        System.out.println(fieldLineageInfoList.size());
 //        tables.parallelStream().forEach(table -> System.out.println(table));
     }
 
